@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import copy
 import os
 from enum import IntFlag, auto
-from typing import Optional, Union
+from typing import Optional, Union, Type
 import re
 
 
@@ -14,7 +15,7 @@ class InvalidCellException(BaseException):
     pass
 
 
-class PieceType(IntFlag):
+class Color(IntFlag):
     WHITE = 0
     BLACK = 1
 
@@ -22,18 +23,18 @@ class PieceType(IntFlag):
         return 'white' if self == self.WHITE else 'black'
 
     def opposite(self):
-        return PieceType(not self)
+        return Color(not self)
 
 
 class Piece:
-    def __init__(self, color: PieceType):
-        if color not in (PieceType.BLACK, PieceType.WHITE):
+    def __init__(self, color: Color):
+        if color not in (Color.BLACK, Color.WHITE):
             raise ValueError('invalid piece color')
 
         self.__color = color
 
     @property
-    def color(self) -> PieceType:
+    def color(self) -> Color:
         return self.__color
 
     def handle_event(self, board: Chess, event: Event):
@@ -62,6 +63,14 @@ class Piece:
         if event.start_pos != board.find_position(piece):
             raise MoveNotPossibleException
 
+        """ Cannot move if move leads to check """
+        dummy_board = copy.deepcopy(board)
+        this = dummy_board.get_piece(event.start_pos)
+        dummy_board.place_piece(this, event.end_pos)
+
+        if dummy_board.is_check(self.color):
+            raise MoveNotPossibleException
+
 
 class Pawn(Piece):
     def handle_event(self, board: Chess, event: Event):
@@ -79,7 +88,7 @@ class Pawn(Piece):
                 if abs(event.start_pos[1] - event.end_pos[1]) not in (1, 2):
                     raise MoveNotPossibleException
         elif event.action == event.EAT:
-            if piece.color == PieceType.WHITE:
+            if piece.color == Color.WHITE:
                 if event.end_pos[1] - event.start_pos[1] != 1:
                     raise MoveNotPossibleException
             else:
@@ -106,8 +115,6 @@ class King(Piece):
 
         if abs(event.end_pos[1] - event.start_pos[1]) != 1:
             raise MoveNotPossibleException
-
-        """ TODO: Check if not check """
 
     def __str__(self):
         return 'K'
@@ -196,8 +203,6 @@ class Queen(Piece):
 
         cols = list(range(event.start_pos[0], event.end_pos[0]))
         rows = list(range(event.start_pos[1], event.end_pos[1]))
-
-        print(cols, rows)
 
         if len(rows) == 0:
             rows += [event.start_pos[1]] * len(cols)
@@ -297,8 +302,25 @@ class Event:
 class Chess:
     def __init__(self):
         self.cells: list[list[Optional[Piece]]] = list()
-        self.turn = PieceType.WHITE
+        self.turn = Color.WHITE
         self._initialize()
+
+    def is_check(self, color: Color) -> bool:
+        king_pos = self.find_piece(King, color)
+
+        for r, row in enumerate(self.cells):
+            for c, cell in enumerate(row):
+                if cell is None:
+                    continue
+
+                try:
+                    cell.assert_move(cell, self, Event(type(cell), (r, c), king_pos, Event.MOVE, Event.CHECK))
+                except MoveNotPossibleException:
+                    continue
+                else:
+                    return True
+
+        return False
 
     def _initialize(self):
         raise NotImplemented
@@ -318,6 +340,14 @@ class Chess:
 
     def get_piece(self, pos: (int, int)) -> Optional[Piece]:
         return self.cells[pos[1]][pos[0]]
+
+    def find_piece(self, piece: Type[Piece], color: Color) -> (int, int):
+        for r, row in enumerate(self.cells):
+            for c, cell in enumerate(row):
+                if isinstance(cell, piece) and cell.color == color:
+                    return r, c
+
+        raise ValueError('piece not found')
 
     def find_position(self, piece: Piece):
         for index, row in enumerate(self.cells):
@@ -341,16 +371,16 @@ def l2i(letter: str):
 class ClassicChess(Chess):
     def _initialize(self):
         self.cells: list[list[Optional[Piece]]] = [
-            [Rook(PieceType.WHITE), Knight(PieceType.WHITE), Bishop(PieceType.WHITE), Queen(PieceType.WHITE),
-             King(PieceType.WHITE), Bishop(PieceType.WHITE), Knight(PieceType.WHITE), Rook(PieceType.WHITE)],
-            [Pawn(PieceType.WHITE) for _ in range(8)],
+            [Rook(Color.WHITE), Knight(Color.WHITE), Bishop(Color.WHITE), Queen(Color.WHITE),
+             King(Color.WHITE), Bishop(Color.WHITE), Knight(Color.WHITE), Rook(Color.WHITE)],
+            [Pawn(Color.WHITE) for _ in range(8)],
             [None for _ in range(8)],
             [None for _ in range(8)],
             [None for _ in range(8)],
             [None for _ in range(8)],
-            [Pawn(PieceType.BLACK) for _ in range(8)],
-            [Rook(PieceType.BLACK), Knight(PieceType.BLACK), Bishop(PieceType.BLACK), Queen(PieceType.BLACK),
-             King(PieceType.BLACK), Bishop(PieceType.BLACK), Knight(PieceType.BLACK), Rook(PieceType.BLACK)],
+            [Pawn(Color.BLACK) for _ in range(8)],
+            [Rook(Color.BLACK), Knight(Color.BLACK), Bishop(Color.BLACK), Queen(Color.BLACK),
+             King(Color.BLACK), Bishop(Color.BLACK), Knight(Color.BLACK), Rook(Color.BLACK)],
         ]
 
     def __str__(self):
