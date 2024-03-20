@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from enum import IntFlag, auto
 from typing import Optional, Union
 import re
@@ -14,13 +15,14 @@ class InvalidCellException(BaseException):
 
 
 class PieceType(IntFlag):
-    BLACK = auto()
-    WHITE = auto()
+    WHITE = 0
+    BLACK = 1
+
+    def __str__(self):
+        return 'white' if self == self.WHITE else 'black'
 
     def opposite(self):
-        if self == self.WHITE:
-            return self.BLACK
-        return self.WHITE
+        return PieceType(not self)
 
 
 class Piece:
@@ -37,9 +39,12 @@ class Piece:
     def handle_event(self, board: Chess, event: Event):
         raise NotImplemented
 
-    @staticmethod
-    def assert_move(piece: Piece, board: Chess, event: Event):
+    def assert_move(self, piece: Piece, board: Chess, event: Event):
         """ Base asserts, that are actual for all pieces"""
+
+        """ Zero move is wrong """
+        if event.start_pos[0] - event.end_pos[0] == 0 and event.start_pos[1] - event.end_pos[1] == 0:
+            raise MoveNotPossibleException
 
         """ If a piece eats another, the cell must not be empty """
         if event.action == Event.EAT and board.get_piece(event.end_pos) is None:
@@ -63,9 +68,8 @@ class Pawn(Piece):
         self.assert_move(self, board, event)
         board.place_piece(self, event.end_pos)
 
-    @staticmethod
-    def assert_move(piece: Piece, board: Chess, event: Event):
-        Piece.assert_move(piece, board, event)
+    def assert_move(self, piece: Piece, board: Chess, event: Event):
+        super().assert_move(piece, board, event)
 
         if event.action == event.MOVE:
             if event.start_pos[1] != 1 and event.start_pos[1] != 6:
@@ -94,9 +98,8 @@ class King(Piece):
         self.assert_move(self, board, event)
         board.place_piece(self, event.end_pos)
 
-    @staticmethod
-    def assert_move(piece: Piece, board: Chess, event: Event):
-        Piece.assert_move(piece, board, event)
+    def assert_move(self, piece: Piece, board: Chess, event: Event):
+        super().assert_move(piece, board, event)
 
         if abs(event.end_pos[0] - event.start_pos[0]) != 1:
             raise MoveNotPossibleException
@@ -110,43 +113,13 @@ class King(Piece):
         return 'K'
 
 
-class Queen(Piece):
-    def handle_event(self, board: Chess, event: Event):
-        self.assert_move(self, board, event)
-        board.place_piece(self, event.end_pos)
-
-    @staticmethod
-    def assert_move(piece: Piece, board: Chess, event: Event):
-        Piece.assert_move(piece, board, event)
-
-        as_rook = True
-        as_bishop = True
-
-        try:
-            Rook.assert_move(piece, board, event)
-        except MoveNotPossibleException:
-            as_rook = False
-
-        try:
-            Bishop.assert_move(piece, board, event)
-        except MoveNotPossibleException:
-            as_bishop = False
-
-        if not as_rook and not as_bishop:
-            raise MoveNotPossibleException
-
-    def __str__(self):
-        return 'Q'
-
-
 class Knight(Piece):
     def handle_event(self, board: Chess, event: Event):
         self.assert_move(self, board, event)
         board.place_piece(self, event.end_pos)
 
-    @staticmethod
-    def assert_move(piece: Piece, board: Chess, event: Event):
-        Piece.assert_move(piece, board, event)
+    def assert_move(self, piece: Piece, board: Chess, event: Event):
+        super().assert_move(piece, board, event)
 
         if abs(event.start_pos[0] - event.end_pos[0]) == 2:
             if abs(event.start_pos[1] - event.end_pos[1]) != 1:
@@ -164,11 +137,13 @@ class Bishop(Piece):
         self.assert_move(self, board, event)
         board.place_piece(self, event.end_pos)
 
-    @staticmethod
-    def assert_move(piece: Piece, board: Chess, event: Event):
-        Piece.assert_move(piece, board, event)
+    def assert_move(self, piece: Piece, board: Chess, event: Event):
+        super().assert_move(piece, board, event)
 
-        print(event)
+        if abs(event.start_pos[0] - event.end_pos[0]) == abs(event.start_pos[1] - event.end_pos[1]):
+            return
+
+        raise MoveNotPossibleException
 
     def __str__(self):
         return 'B'
@@ -179,9 +154,8 @@ class Rook(Piece):
         self.assert_move(self, board, event)
         board.place_piece(self, event.end_pos)
 
-    @staticmethod
-    def assert_move(piece: Piece, board: Chess, event: Event):
-        Piece.assert_move(piece, board, event)
+    def assert_move(self, piece: Piece, board: Chess, event: Event):
+        super().assert_move(piece, board, event)
 
         if event.start_pos[0] != event.end_pos[0] and event.start_pos[1] != event.end_pos[1]:
             raise MoveNotPossibleException
@@ -200,6 +174,42 @@ class Rook(Piece):
 
     def __str__(self):
         return 'R'
+
+
+class Queen(Piece):
+    def handle_event(self, board: Chess, event: Event):
+        self.assert_move(self, board, event)
+        board.place_piece(self, event.end_pos)
+
+    def assert_move(self, piece: Piece, board: Chess, event: Event):
+        super().assert_move(piece, board, event)
+
+        if event.start_pos[0] != event.end_pos[0] and event.start_pos[1] != event.end_pos[1]:
+            """ Rook path """
+            raise MoveNotPossibleException
+
+        if abs(event.start_pos[0] - event.end_pos[0]) != abs(event.start_pos[1] - event.end_pos[1]):
+            """ Bishop path """
+            raise MoveNotPossibleException
+
+        """ Trace route """
+
+        cols = list(range(event.start_pos[0], event.end_pos[0]))
+        rows = list(range(event.start_pos[1], event.end_pos[1]))
+
+        print(cols, rows)
+
+        if len(rows) == 0:
+            rows += [event.start_pos[1]] * len(cols)
+        else:
+            cols += [event.start_pos[0]] * len(rows)
+
+        for pos in list(zip(cols, rows))[1:]:
+            if board.get_piece(pos) is not None:
+                raise MoveNotPossibleException
+
+    def __str__(self):
+        return 'Q'
 
 
 class Event:
@@ -358,8 +368,7 @@ class FisherChess(Chess):
 
 if __name__ == '__main__':
     chess = ClassicChess()
-    print(chess)
 
     while True:
-        chess.handle_event(Event.parse_event(input(f'Enter move {chess.turn}: ')))
         print(chess)
+        chess.handle_event(Event.parse_event(input(f'Enter move {chess.turn}: ')))
